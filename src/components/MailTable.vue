@@ -1,12 +1,14 @@
 <template>
   <table class="mail-table">
     <tbody>
-      <tr v-for="email in unarchivedEmails"
+      <tr v-for="email in emails" 
           :key="email.id"
-          :class="['clickable', email.read ? 'read' : '']"
+          :class="[email.read ? 'read': '', 'clickable']"
           @click="openEmail(email)">
         <td>
-          <input type="checkbox" />
+          <input type="checkbox"
+                 :checked="emailSelection.emails.has(email)"
+                 @click="emailSelection.toggle(email)" />
         </td>
         <td>{{email.from}}</td>
         <td>
@@ -17,49 +19,61 @@
       </tr>
     </tbody>
   </table>
-  <MailView v-if="openedEmail" :email="openedEmail" />
+
+  <ModalView v-if="openedEmail" :closeModal="() => { openedEmail = null; }">
+    <MailView :email="openedEmail"
+              :changeEmail="(args) => changeEmail(openedEmail, args)" />
+  </ModalView>
 </template>
 
 <script>
   import { format } from 'date-fns';
-  import axios from 'axios';
   import MailView from '@/components/MailView.vue';
-  import { ref } from 'vue';
+  import ModalView from '@/components/ModalView.vue';
+  import { useEmailSelection } from '../composition/useEmailSelection';
+  import axios from 'axios';
 
   export default {
     async setup(){
-      let {data: emails} = await axios.get('http://localhost:3000/emails')
       return {
         format,
-        emails: ref(emails),
-        openedEmail: ref(null)
+        openedEmail: null,
+        emailSelection: useEmailSelection()
       }
     },
     components: {
-      MailView
-    },
-    computed: {
-      sortedEmails() {
-        return this.emails.sort((e1, e2) => {
-          return e1.sentAt < e2.sentAt ? 1 : -1
-        })
-      },
-      unarchivedEmails() {
-        return this.sortedEmails.filter(e => !e.archived)
-      }
+      MailView,
+      ModalView,
     },
     methods: {
-      openEmail(email) {
-        email.read = true
-        this.updateEmail(email)
-        this.openedEmail = email
+      openEmail(email){
+        this.openedEmail = email;
+
+        if(email) {
+          email.read = true
+          axios.put(`http://localhost:3000/emails/${email.id}`, email)
+        }
       },
-      archiveEmail(email) {
-        email.archived = true
-        this.updateEmail(email)
-      },
-      updateEmail(email) {
+      archiveEmail(email){
+        email.archived = true;
         axios.put(`http://localhost:3000/emails/${email.id}`, email)
+      },
+      changeEmail(email, {indexChange, toggleArchive, toggleRead, save, closeModal}) {
+        if(toggleArchive) { email.archived = !email.archived }
+        if(toggleRead) { email.read = !email.read }
+        if(save) { axios.put(`http://localhost:3000/emails/${email.id}`, email) }
+        if(closeModal) { this.openedEmail = null; return null; }
+
+        if(indexChange) {
+          let index = this.emails.findIndex(e => e == email);
+          this.openEmail(this.emails[index + indexChange])
+        }
+      }
+    },
+    props: {
+      emails: {
+        type: Array,
+        required: true
       }
     }
   }
